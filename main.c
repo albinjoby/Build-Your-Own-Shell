@@ -29,7 +29,9 @@ int main(int argc, char *argv[]) {
           printf("%s\n",cwd);
       }else if (strncmp(command, "cd ", 3) == 0) {
          char *path = command+3;
-         if (chdir(path) != 0){
+         if (strcmp(path, "~") == 0) {
+             chdir(getenv("HOME"));
+         }else if (chdir(path) != 0){
              printf("cd: %s: No such file or directory\n",path);
          }
       }
@@ -73,16 +75,16 @@ int main(int argc, char *argv[]) {
       else{
           char *args[64];
           int argc = 0;
-          
+
           char *token = strtok(command," ");
           while (token != NULL && argc < 63) {
               args[argc++] = token;
               token = strtok(NULL, " ");
           }
           args[argc] = NULL;
-          
+
           pid_t pid = fork();
-          
+
           if (pid == 0) {
               execvp(args[0], args);
               printf("%s: command not found\n",command);
