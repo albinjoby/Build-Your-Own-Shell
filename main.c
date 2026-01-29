@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 int main(int argc, char *argv[]) {
   // Flush after every printf
@@ -11,13 +13,13 @@ int main(int argc, char *argv[]) {
       "echo",
       "type"
   };
-  
+
   while (1) {
       printf("$ ");
       fgets(command,sizeof(command),stdin);
-      
+
       command[strcspn(command, "\n")] = '\0';
-      
+
       if (strcmp(command, "exit") == 0) {
           break;
       }else if (strncmp(command, "echo ", 5) == 0) {
@@ -32,12 +34,56 @@ int main(int argc, char *argv[]) {
               }
           }
           if (!flag) {
+            const char *env = getenv("PATH");
+            char *path_copy = strdup(env);
+            char *dir = strtok(path_copy, ":");
+            char *cmd = command + 5;
+
+            while (dir != NULL) {
+                char fullpath[1024];
+                snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd);
+
+                if (access(fullpath, X_OK) == 0) {
+                        printf("%s is %s\n", cmd, fullpath);
+                        flag = 1;
+                        break;
+                    }
+
+                    dir = strtok(NULL, ":");
+                }
+
+                free(path_copy);
+            }
+
+          if (!flag) {
               printf("%s: not found\n",command+5);
           }
       }
       else{
-          printf("%s: command not found\n",command);
+          char *args[64];
+          int argc = 0;
+          
+          char *token = strtok(command," ");
+          while (token != NULL && argc < 63) {
+              args[argc++] = token;
+              token = strtok(NULL, " ");
+          }
+          args[argc] = NULL;
+          
+          pid_t pid = fork();
+          
+          if (pid == 0) {
+              execvp(args[0], args);
+              printf("%s: command not found\n",command);
+              exit(1);
+          }else{
+              waitpid(pid, NULL, 0);
+          }
+          
       }
+      
+      
+      
   }
   return 0;
 }
