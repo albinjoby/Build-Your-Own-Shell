@@ -12,7 +12,8 @@ int main(int argc, char *argv[]) {
       "exit",
       "echo",
       "type",
-      "pwd"
+      "pwd",
+      "cd"
   };
 
   while (1) {
@@ -26,7 +27,13 @@ int main(int argc, char *argv[]) {
           char cwd[64];
           getcwd(cwd, sizeof(cwd));
           printf("%s\n",cwd);
-      }else if (strncmp(command, "echo ", 5) == 0) {
+      }else if (strncmp(command, "cd ", 3) == 0) {
+         char *path = command+3;
+         if (chdir(path) != 0){
+             printf("cd: %s: No such file or directory\n",path);
+         }
+      }
+      else if (strncmp(command, "echo ", 5) == 0) {
           printf("%s\n", command+5);
       }else if (strncmp(command, "type ", 5) == 0) {
           int flag = 0;
