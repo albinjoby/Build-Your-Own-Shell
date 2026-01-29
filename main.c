@@ -11,17 +11,21 @@ int main(int argc, char *argv[]) {
   char *commands[] = {
       "exit",
       "echo",
-      "type"
+      "type",
+      "pwd"
   };
 
   while (1) {
       printf("$ ");
       fgets(command,sizeof(command),stdin);
-
       command[strcspn(command, "\n")] = '\0';
 
       if (strcmp(command, "exit") == 0) {
           break;
+      }else if (strcmp(command, "pwd") == 0) {
+          char cwd[64];
+          getcwd(cwd, sizeof(cwd));
+          printf("%s\n",cwd);
       }else if (strncmp(command, "echo ", 5) == 0) {
           printf("%s\n", command+5);
       }else if (strncmp(command, "type ", 5) == 0) {
@@ -79,11 +83,7 @@ int main(int argc, char *argv[]) {
           }else{
               waitpid(pid, NULL, 0);
           }
-          
       }
-      
-      
-      
   }
   return 0;
 }
