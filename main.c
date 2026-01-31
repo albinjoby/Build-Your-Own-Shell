@@ -36,7 +36,31 @@ int main(int argc, char *argv[]) {
          }
       }
       else if (strncmp(command, "echo ", 5) == 0) {
-          printf("%s\n", command+5);
+          char *string = command + 5;
+          int qouted = 0;
+          int i = 0;
+          while (string[i] != '\0') {
+              if (string[i] == '\'') {
+                  qouted = !qouted;
+                  i++;
+                  continue;
+              }
+              if (string[i] != ' ') {
+                  printf("%c",string[i]);
+              }else{
+                  if (qouted) {
+                      printf("%c",string[i]);
+                  }else{
+                      while (string[i] == ' ') {
+                          i++;
+                      }
+                      printf(" ");
+                      continue;
+                  }
+              }
+              i++;
+          }
+          printf("\n");
       }else if (strncmp(command, "type ", 5) == 0) {
           int flag = 0;
           for (int i=0; i<sizeof(commands)/sizeof(commands[0]); i++) {
