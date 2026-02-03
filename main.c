@@ -4,17 +4,39 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+void parse_args(char *input, char **args){
+    int i = 0, j = 0, argc = 0;
+    int quoted = 0;
+    char buffer[1024];
+    
+    while (input[i] != '\0') {
+        if (input[i] == '\'') {
+            quoted = !quoted;
+            i++;
+            continue;
+        }
+        if (input[i] == ' ' && !quoted) {
+            if (j > 0) {
+                buffer[i] = '\0';
+                args[argc++] = strdup(buffer);
+                j = 0;
+            }
+            i++;
+            continue;
+        }
+        buffer[j++] = input[i++];
+    }
+    if (j>0) {
+        buffer[i] = '\0';
+        args[argc++] = strdup(buffer);
+    }
+    args[argc] = NULL;
+}
+
 int main(int argc, char *argv[]) {
-  // Flush after every printf
   setbuf(stdout, NULL);
   char command[100];
-  char *commands[] = {
-      "exit",
-      "echo",
-      "type",
-      "pwd",
-      "cd"
-  };
+  char *commands[] = {"exit","echo","type","pwd","cd"};
 
   while (1) {
       printf("$ ");
@@ -34,8 +56,7 @@ int main(int argc, char *argv[]) {
          }else if (chdir(path) != 0){
              printf("cd: %s: No such file or directory\n",path);
          }
-      }
-      else if (strncmp(command, "echo ", 5) == 0) {
+      }else if (strncmp(command, "echo ", 5) == 0) {
           char *string = command + 5;
           int qouted = 0;
           int i = 0;
@@ -95,25 +116,16 @@ int main(int argc, char *argv[]) {
           if (!flag) {
               printf("%s: not found\n",command+5);
           }
-      }
-      else{
+      }else{
           char *args[64];
-          int argc = 0;
-
-          char *token = strtok(command," ");
-          while (token != NULL && argc < 63) {
-              args[argc++] = token;
-              token = strtok(NULL, " ");
-          }
-          args[argc] = NULL;
-
+          parse_args(command, args);
+          
           pid_t pid = fork();
-
           if (pid == 0) {
               execvp(args[0], args);
-              printf("%s: command not found\n",command);
+              printf("%s: command not found\n", args[0]);
               exit(1);
-          }else{
+          } else {
               waitpid(pid, NULL, 0);
           }
       }
