@@ -8,7 +8,7 @@ void parse_args(char *input, char **args){
     int i = 0, j = 0, argc = 0;
     int quoted = 0;
     char buffer[1024];
-    
+
     while (input[i] != '\0') {
         if (input[i] == '\'') {
             quoted = !quoted;
@@ -58,26 +58,37 @@ int main(int argc, char *argv[]) {
          }
       }else if (strncmp(command, "echo ", 5) == 0) {
           char *string = command + 5;
-          int qouted = 0;
+          int single_quoted = 0, double_quoted = 0;
           int i = 0;
           while (string[i] != '\0') {
-              if (string[i] == '\'') {
-                  qouted = !qouted;
+              if(string[i] == '\"'){
+                  double_quoted = !double_quoted;
                   i++;
                   continue;
+              }else if (string[i] == '\'') {
+                  if (!double_quoted) {
+                      single_quoted = !single_quoted;
+                      i++;
+                      continue;
+                  }else{
+                      printf("'");
+                      i++;
+                      continue;
+                  }
               }
-              if (string[i] != ' ') {
-                  printf("%c",string[i]);
-              }else{
-                  if (qouted) {
-                      printf("%c",string[i]);
+              if (string[i] == ' ') {
+                  if (single_quoted || double_quoted) {
+                      printf(" ");
+                      i++;
                   }else{
                       while (string[i] == ' ') {
                           i++;
                       }
                       printf(" ");
-                      continue;
                   }
+                  continue;
+              }else{
+                  printf("%c",string[i]);
               }
               i++;
           }
@@ -119,7 +130,7 @@ int main(int argc, char *argv[]) {
       }else{
           char *args[64];
           parse_args(command, args);
-          
+
           pid_t pid = fork();
           if (pid == 0) {
               execvp(args[0], args);
