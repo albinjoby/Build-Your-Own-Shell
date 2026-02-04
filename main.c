@@ -6,18 +6,23 @@
 
 void parse_args(char *input, char **args){
     int i = 0, j = 0, argc = 0;
-    int quoted = 0;
+    int single_quoted = 0, double_quoted = 0;
     char buffer[1024];
 
     while (input[i] != '\0') {
-        if (input[i] == '\'') {
-            quoted = !quoted;
+        if (input[i] == '\"' && !single_quoted) {
+            double_quoted = !double_quoted;
+            i++;
+            continue;
+        }else if (input[i] == '\'' && !double_quoted) {
+            single_quoted = !single_quoted;
             i++;
             continue;
         }
-        if (input[i] == ' ' && !quoted) {
+        
+        if (input[i] == ' ' &&  !double_quoted && !single_quoted) {
             if (j > 0) {
-                buffer[i] = '\0';
+                buffer[j] = '\0';
                 args[argc++] = strdup(buffer);
                 j = 0;
             }
@@ -27,7 +32,7 @@ void parse_args(char *input, char **args){
         buffer[j++] = input[i++];
     }
     if (j>0) {
-        buffer[i] = '\0';
+        buffer[j] = '\0';
         args[argc++] = strdup(buffer);
     }
     args[argc] = NULL;
@@ -58,39 +63,10 @@ int main(int argc, char *argv[]) {
          }
       }else if (strncmp(command, "echo ", 5) == 0) {
           char *string = command + 5;
-          int single_quoted = 0, double_quoted = 0;
-          int i = 0;
-          while (string[i] != '\0') {
-              if(string[i] == '\"'){
-                  double_quoted = !double_quoted;
-                  i++;
-                  continue;
-              }else if (string[i] == '\'') {
-                  if (!double_quoted) {
-                      single_quoted = !single_quoted;
-                      i++;
-                      continue;
-                  }else{
-                      printf("'");
-                      i++;
-                      continue;
-                  }
-              }
-              if (string[i] == ' ') {
-                  if (single_quoted || double_quoted) {
-                      printf(" ");
-                      i++;
-                  }else{
-                      while (string[i] == ' ') {
-                          i++;
-                      }
-                      printf(" ");
-                  }
-                  continue;
-              }else{
-                  printf("%c",string[i]);
-              }
-              i++;
+          char *args[64];
+          parse_args(string, args);
+          for (int i=0; args[i]!=NULL; i++) {
+              printf("%s",args[i]);
           }
           printf("\n");
       }else if (strncmp(command, "type ", 5) == 0) {
