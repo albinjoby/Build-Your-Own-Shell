@@ -6,20 +6,42 @@
 
 void parse_args(char *input, char **args){
     int i = 0, j = 0, argc = 0;
-    int single_quoted = 0, double_quoted = 0;
+    int single_quoted = 0, double_quoted = 0, escaped = 0;
     char buffer[1024];
 
     while (input[i] != '\0') {
+        // escape string literals
+        if (input[i] == '\\' && !single_quoted) {
+            i++;
+            if (input[i] == '\0') {
+                break;
+            }
+            if (double_quoted) {
+                if (input[i] == '"' || input[i] == '\\' || input[i] == '$' || input[i] == '`')  {
+                    buffer[j++] = input[i++];
+                }else{
+                    buffer[j++] = '\\';
+                    buffer[j++] = input[i++];
+                }
+            }else{
+                buffer[j++] = input[i++];
+            }
+            escaped = 1;
+            continue;
+        }
+        // single qoutes
         if (input[i] == '\"' && !single_quoted) {
             double_quoted = !double_quoted;
             i++;
             continue;
-        }else if (input[i] == '\'' && !double_quoted) {
+        }
+        // double qoutes
+        if (input[i] == '\'' && !double_quoted) {
             single_quoted = !single_quoted;
             i++;
             continue;
         }
-        
+        // split arguments
         if (input[i] == ' ' &&  !double_quoted && !single_quoted) {
             if (j > 0) {
                 buffer[j] = '\0';
@@ -27,10 +49,14 @@ void parse_args(char *input, char **args){
                 j = 0;
             }
             i++;
+            escaped = 0;
             continue;
         }
+        // normal character
         buffer[j++] = input[i++];
+        escaped = 0;
     }
+    // final argument
     if (j>0) {
         buffer[j] = '\0';
         args[argc++] = strdup(buffer);
@@ -66,6 +92,9 @@ int main(int argc, char *argv[]) {
           char *args[64];
           parse_args(string, args);
           for (int i=0; args[i]!=NULL; i++) {
+              if (i > 0) {
+                  printf(" ");
+              }
               printf("%s",args[i]);
           }
           printf("\n");
