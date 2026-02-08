@@ -74,6 +74,13 @@ int handler_redirection(char **args, char **output_file){
             *output_file = args[i + 1];
             args[i] = NULL;
             return 1;
+        }else if (strcmp(args[i], "2>") == 0) {
+            if(args[i + 1] == NULL){
+                return -1;
+            }
+            *output_file = args[i + 1];
+            args[i] = NULL;
+            return 2;
         }
     }
     return 0;
@@ -116,16 +123,21 @@ int main(int argc, char *argv[]) {
           }
           
           int saved_stdout = -1;
+          int saved_stderr = -1;
           
-          if (redirect_status == 1) {
+          if (redirect_status == 1 || redirect_status == 2) {
               int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
               if (fd < 0) {
                   perror("open");
                   continue;
               }
-              
-              saved_stdout = dup(STDOUT_FILENO);
-              dup2(fd,STDOUT_FILENO);
+              if (redirect_status == 1) {
+                saved_stdout = dup(STDOUT_FILENO);
+                dup2(fd,STDOUT_FILENO);
+              }else{
+                  saved_stderr = dup(STDERR_FILENO);
+                  dup2(fd, STDERR_FILENO);
+              }
               close(fd);
           }
           
@@ -140,6 +152,9 @@ int main(int argc, char *argv[]) {
           if (redirect_status == 1) {
               dup2(saved_stdout, STDOUT_FILENO);
               close(saved_stdout);
+          }else if (redirect_status == 2) {
+              dup2(saved_stderr, STDERR_FILENO);
+              close(saved_stderr);
           }
       }else if (strncmp(command, "type ", 5) == 0) {
           int flag = 0;
@@ -190,13 +205,17 @@ int main(int argc, char *argv[]) {
           pid_t pid = fork();
           
           if (pid == 0) {
-              if(redirect_status == 1){
+              if(redirect_status == 1 || redirect_status == 2){
                   int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                   if (fd < 0) {
                       perror("open");
                       exit(1);
                   }
-                  dup2(fd, STDOUT_FILENO);
+                  if (redirect_status == 1) {
+                      dup2(fd, STDOUT_FILENO);
+                  }else{
+                      dup2(fd, STDERR_FILENO);
+                  }
                   close(fd);
               }
               
