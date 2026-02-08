@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 void parse_args(char *input, char **args){
     int i = 0, j = 0, argc = 0;
@@ -64,6 +65,20 @@ void parse_args(char *input, char **args){
     args[argc] = NULL;
 }
 
+int handler_redirection(char **args, char **output_file){
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], "1>") == 0 || strcmp(args[i], ">") == 0) {
+            if(args[i + 1] == NULL){
+                return -1;
+            }
+            *output_file = args[i + 1];
+            args[i] = NULL;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
   setbuf(stdout, NULL);
   char command[100];
@@ -91,6 +106,29 @@ int main(int argc, char *argv[]) {
           char *string = command + 5;
           char *args[64];
           parse_args(string, args);
+          
+          char *output_file = NULL;
+          int redirect_status = handler_redirection(args, &output_file);
+          
+          if (redirect_status == -1) {
+              printf("echo: missing file operand\n");
+              continue;
+          }
+          
+          int saved_stdout = -1;
+          
+          if (redirect_status == 1) {
+              int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+              if (fd < 0) {
+                  perror("open");
+                  continue;
+              }
+              
+              saved_stdout = dup(STDOUT_FILENO);
+              dup2(fd,STDOUT_FILENO);
+              close(fd);
+          }
+          
           for (int i=0; args[i]!=NULL; i++) {
               if (i > 0) {
                   printf(" ");
@@ -98,6 +136,11 @@ int main(int argc, char *argv[]) {
               printf("%s",args[i]);
           }
           printf("\n");
+          
+          if (redirect_status == 1) {
+              dup2(saved_stdout, STDOUT_FILENO);
+              close(saved_stdout);
+          }
       }else if (strncmp(command, "type ", 5) == 0) {
           int flag = 0;
           for (int i=0; i<sizeof(commands)/sizeof(commands[0]); i++) {
@@ -136,8 +179,27 @@ int main(int argc, char *argv[]) {
           char *args[64];
           parse_args(command, args);
 
+          char *output_file = NULL;
+          int redirect_status = handler_redirection(args, &output_file);
+          
+          if(redirect_status == -1){
+              printf("missing file operand\n");
+              continue;
+          }
+          
           pid_t pid = fork();
+          
           if (pid == 0) {
+              if(redirect_status == 1){
+                  int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                  if (fd < 0) {
+                      perror("open");
+                      exit(1);
+                  }
+                  dup2(fd, STDOUT_FILENO);
+                  close(fd);
+              }
+              
               execvp(args[0], args);
               printf("%s: command not found\n", args[0]);
               exit(1);
