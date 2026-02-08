@@ -68,19 +68,20 @@ void parse_args(char *input, char **args){
 int handler_redirection(char **args, char **output_file){
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], "1>") == 0 || strcmp(args[i], ">") == 0) {
-            if(args[i + 1] == NULL){
-                return -1;
-            }
+            if(args[i + 1] == NULL) return -1;
             *output_file = args[i + 1];
             args[i] = NULL;
             return 1;
         }else if (strcmp(args[i], "2>") == 0) {
-            if(args[i + 1] == NULL){
-                return -1;
-            }
+            if(args[i + 1] == NULL) return -1;
             *output_file = args[i + 1];
             args[i] = NULL;
             return 2;
+        }else if (strcmp(args[i], ">>") == 0 || strcmp(args[i], "1>>") == 0) {
+            if(args[i + 1] == NULL) return -1;
+            *output_file = args[i + 1];
+            args[i] = NULL;
+            return  3;
         }
     }
     return 0;
@@ -125,19 +126,27 @@ int main(int argc, char *argv[]) {
           int saved_stdout = -1;
           int saved_stderr = -1;
           
-          if (redirect_status == 1 || redirect_status == 2) {
-              int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+          if (redirect_status > 0) {
+              int flags = O_WRONLY | O_CREAT;
+              if (redirect_status == 1 || redirect_status == 2) {
+                  flags |= O_TRUNC;
+              }else{
+                  flags |= O_APPEND;
+              }
+              
+              int fd = open(output_file, flags, 0644);
               if (fd < 0) {
                   perror("open");
-                  continue;
+                  exit(0);
               }
-              if (redirect_status == 1) {
+              
+              if (redirect_status == 1 || redirect_status == 3) {
                 saved_stdout = dup(STDOUT_FILENO);
                 dup2(fd,STDOUT_FILENO);
               }else{
                   saved_stderr = dup(STDERR_FILENO);
                   dup2(fd, STDERR_FILENO);
-              }
+              }              
               close(fd);
           }
           
@@ -149,10 +158,10 @@ int main(int argc, char *argv[]) {
           }
           printf("\n");
           
-          if (redirect_status == 1) {
+          if (redirect_status == 1 || redirect_status == 3) {
               dup2(saved_stdout, STDOUT_FILENO);
               close(saved_stdout);
-          }else if (redirect_status == 2) {
+          }else if(redirect_status == 2 || redirect_status == 4){
               dup2(saved_stderr, STDERR_FILENO);
               close(saved_stderr);
           }
@@ -205,13 +214,19 @@ int main(int argc, char *argv[]) {
           pid_t pid = fork();
           
           if (pid == 0) {
-              if(redirect_status == 1 || redirect_status == 2){
-                  int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+              if(redirect_status > 0){
+                  int flags = O_WRONLY | O_CREAT;
+                  if (redirect_status == 1 || redirect_status == 2) {
+                      flags |= O_TRUNC;
+                  }else if (redirect_status == 3) {
+                      flags |= O_APPEND;
+                  }
+                  int fd = open(output_file, flags, 0644);
                   if (fd < 0) {
                       perror("open");
                       exit(1);
                   }
-                  if (redirect_status == 1) {
+                  if (redirect_status == 1 || redirect_status == 3) {
                       dup2(fd, STDOUT_FILENO);
                   }else{
                       dup2(fd, STDERR_FILENO);
