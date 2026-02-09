@@ -218,7 +218,7 @@ int main(int argc, char *argv[]) {
                   int flags = O_WRONLY | O_CREAT;
                   if (redirect_status == 1 || redirect_status == 2) {
                       flags |= O_TRUNC;
-                  }else if (redirect_status == 3) {
+                  }else{
                       flags |= O_APPEND;
                   }
                   int fd = open(output_file, flags, 0644);
