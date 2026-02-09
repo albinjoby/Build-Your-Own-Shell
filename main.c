@@ -4,6 +4,23 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <termios.h>
+
+struct termios orig_termios;
+
+void disable_raw_mode() {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+void enable_raw_mode() {
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    atexit(disable_raw_mode);
+
+    struct termios raw = orig_termios;
+
+    raw.c_lflag &= ~(ECHO | ICANON);  // disable echo + canonical mode
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
 
 void parse_args(char *input, char **args){
     int i = 0, j = 0, argc = 0;
@@ -82,20 +99,70 @@ int handler_redirection(char **args, char **output_file){
             *output_file = args[i + 1];
             args[i] = NULL;
             return  3;
+        }else if (strcmp(args[i], "2>>") == 0) {
+            if(args[i] == NULL) return -1;
+            *output_file = args[i + 1];
+            args[i] = NULL;
+            return 4;
         }
     }
     return 0;
 }
 
+void autocomplete(char *command, char **commands, int *len, int command_count){
+    for (int i = 0; i < command_count; i++) {
+        if(strncmp(command, commands[i], *len) == 0){
+            write(STDOUT_FILENO, commands[i] + *len, strlen(commands[i]) - *len);
+            strcpy(command, commands[i]);
+            *len = strlen(commands[i]);
+            
+            if (*len < 1023) {
+                command[*len] = ' ';
+                command[*len + 1] = '\0';
+                (*len)++;
+                write(STDOUT_FILENO, " ", 1);
+            }
+            return ;
+        }
+    }
+    return;
+}
+
 int main(int argc, char *argv[]) {
   setbuf(stdout, NULL);
-  char command[100];
+  char command[1024];
   char *commands[] = {"exit","echo","type","pwd","cd"};
+  int len = 0;
 
+  enable_raw_mode();
   while (1) {
       printf("$ ");
-      fgets(command,sizeof(command),stdin);
-      command[strcspn(command, "\n")] = '\0';
+      len = 0;
+     
+      // get user input (with autocompletion) 
+      while (1) {
+          char c;
+          read(STDIN_FILENO, &c, 1);
+          if (c == '\t') {
+              autocomplete(command, commands, &len, sizeof(commands)/sizeof(commands[0]));
+              continue;
+          }
+          if (c == '\n' || c == '\r') {
+              command[len] = '\0';
+              printf("\n");
+              break;
+          }
+          if (c == 127 || c == 8) {
+              if (len > 0) {
+                  len--;
+                  command[len] = '\0';
+                  write(STDOUT_FILENO, "\b \b", 3);
+              }
+              continue;
+          }
+          command[len++] = c;
+          write(STDOUT_FILENO, &c, 1);
+      }
 
       if (strcmp(command, "exit") == 0) {
           break;
