@@ -125,6 +125,7 @@ void autocomplete(char *command, char **commands, int *len, int command_count){
             return ;
         }
     }
+    write(STDOUT_FILENO, "\a", 1);
     return;
 }
 
@@ -134,35 +135,42 @@ int main(int argc, char *argv[]) {
   char *commands[] = {"exit","echo","type","pwd","cd"};
   int len = 0;
 
-  enable_raw_mode();
   while (1) {
-      printf("$ ");
-      len = 0;
-     
-      // get user input (with autocompletion) 
-      while (1) {
-          char c;
-          read(STDIN_FILENO, &c, 1);
-          if (c == '\t') {
-              autocomplete(command, commands, &len, sizeof(commands)/sizeof(commands[0]));
-              continue;
-          }
-          if (c == '\n' || c == '\r') {
-              command[len] = '\0';
-              printf("\n");
-              break;
-          }
-          if (c == 127 || c == 8) {
-              if (len > 0) {
-                  len--;
-                  command[len] = '\0';
-                  write(STDOUT_FILENO, "\b \b", 3);
-              }
-              continue;
-          }
-          command[len++] = c;
-          write(STDOUT_FILENO, &c, 1);
-      }
+      
+      if (isatty(STDIN_FILENO)) {
+          enable_raw_mode();
+          printf("$ ");
+                len = 0;
+               
+                // get user input (with autocompletion) 
+                while (1) {
+                    char c;
+                    read(STDIN_FILENO, &c, 1);
+                    if (c == '\t') {
+                        autocomplete(command, commands, &len, sizeof(commands)/sizeof(commands[0]));
+                        continue;
+                    }
+                    if (c == '\n' || c == '\r') {
+                        command[len] = '\0';
+                        printf("\n");
+                        break;
+                    }
+                    if (c == 127 || c == 8) {
+                        if (len > 0) {
+                            len--;
+                            command[len] = '\0';
+                            write(STDOUT_FILENO, "\b \b", 3);
+                        }
+                        continue;
+                    }
+                    command[len++] = c;
+                    write(STDOUT_FILENO, &c, 1);
+                }
+            }else {
+                printf("$ ");
+                fgets(command, sizeof(command), stdin);
+                command[strcspn(command, "\n")] = '\0';
+            }
 
       if (strcmp(command, "exit") == 0) {
           break;
