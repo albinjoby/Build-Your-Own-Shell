@@ -122,6 +122,18 @@ int cmp(const void *a, const void *b) {
     return strcmp(s1, s2);
 }
 
+int findprefix(const char *str1, const char *str2, char *found) {
+    int i = 0;
+
+    while (str1[i] && str2[i] && str1[i] == str2[i]) {
+        found[i] = str1[i];
+        i++;
+    }
+
+    found[i] = '\0';
+    return i;
+}
+
 int already_added(char **arr, int count, char *s){
     for (int i = 0; i < count; i++) {
         if (strcmp(arr[i], s) == 0) return 1;
@@ -170,20 +182,53 @@ void autocomplete(char *command, int *len){
         }
         tab_pressed_once = 0;
         return ;
-    }else{
+    }else {
         qsort(predictions, pred_count, sizeof(char *), cmp);
+    
+        // find LCP
+        char prefix[1024];
+        strcpy(prefix, predictions[0]);
+    
+        for (int i = 1; i < pred_count; i++) {
+            char temp[1024];
+            findprefix(prefix, predictions[i], temp);
+            strcpy(prefix, temp);
+    
+            if (prefix[0] == '\0') break;
+        }
+    
+        int prefix_len = strlen(prefix);
+    
+        // CASE 1: LCP is longer than what user typed → complete in-place
+        if (prefix_len > *len) {
+            write(STDOUT_FILENO, prefix + *len, prefix_len - *len);
+    
+            strcpy(command, prefix);
+            *len = prefix_len;
+    
+            tab_pressed_once = 0;
+            return;
+        }
+    
+        // CASE 2: LCP is same as input → normal double-tab list behavior
         if (tab_pressed_once == 0) {
-                write(STDOUT_FILENO, "\a", 1);
-                tab_pressed_once = 1;
-                return;
-            }
+            write(STDOUT_FILENO, "\a", 1);
+            tab_pressed_once = 1;
+            return;
+        }
+    
         tab_pressed_once = 0;
+    
         printf("\n");
-        for (int i = 0; predictions[i] != NULL; i++){
-            printf("%s",predictions[i]);
+        for (int i = 0; i < pred_count; i++) {
+            printf("%s", predictions[i]);
             if (i != pred_count - 1) printf("  ");
         }
         printf("\n");
+    
+        printf("$ ");
+        write(STDOUT_FILENO, command, *len);
+        return;
     }
     printf("$ ");
     write(STDOUT_FILENO, command, *len);
