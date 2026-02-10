@@ -5,6 +5,12 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <dirent.h>
+#include <sys/stat.h>
+
+char *commands[] = {"exit","echo","type","pwd","cd"};
+char *executables[10000];
+int exe_idx = 0;
 
 struct termios orig_termios;
 
@@ -109,12 +115,12 @@ int handler_redirection(char **args, char **output_file){
     return 0;
 }
 
-void autocomplete(char *command, char **commands, int *len, int command_count){
-    for (int i = 0; i < command_count; i++) {
-        if(strncmp(command, commands[i], *len) == 0){
-            write(STDOUT_FILENO, commands[i] + *len, strlen(commands[i]) - *len);
-            strcpy(command, commands[i]);
-            *len = strlen(commands[i]);
+void autocomplete(char *command, int *len){
+    for (int i = 0; executables[i] != NULL; i++) {
+        if(strncmp(command, executables[i], *len) == 0){
+            write(STDOUT_FILENO, executables[i] + *len, strlen(executables[i]) - *len);
+            strcpy(command, executables[i]);
+            *len = strlen(executables[i]);
             
             if (*len < 1023) {
                 command[*len] = ' ';
@@ -129,10 +135,49 @@ void autocomplete(char *command, char **commands, int *len, int command_count){
     return;
 }
 
+void add_executable(char *name){
+    if (exe_idx >= 9999) return;
+    executables[exe_idx++] = strdup(name);
+    executables[exe_idx] = NULL;
+}
+
+void get_executables(){
+    // get implemented commands
+    for (int i = 0; i < sizeof(commands)/sizeof(commands[0]); i++) {
+        executables[exe_idx++] = strdup(commands[i]);
+    }
+    // get predefined commands
+     char *path = getenv("PATH");
+     char *path_copy = strdup(path);
+     char *dir = strtok(path_copy, ":");
+     while (dir != NULL) {
+         DIR *d = opendir(dir);
+         if (!d) {
+             dir = strtok(NULL, ":");
+             continue;
+         }
+         struct dirent *entry;
+         while ((entry = readdir(d)) != NULL) {
+             if (entry->d_name[0] == '.') continue;
+             
+             char fullpath[1024];
+             snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, entry->d_name);
+             
+             if (access(fullpath, X_OK) == 0) {
+                 add_executable(entry->d_name);
+             }
+             
+         }
+         closedir(d);
+         dir = strtok(NULL, ":");
+     }
+     free(path_copy);
+}
+
 int main(int argc, char *argv[]) {
+  get_executables();
   setbuf(stdout, NULL);
   char command[1024];
-  char *commands[] = {"exit","echo","type","pwd","cd"};
   int len = 0;
 
   while (1) {
@@ -147,7 +192,7 @@ int main(int argc, char *argv[]) {
                     char c;
                     read(STDIN_FILENO, &c, 1);
                     if (c == '\t') {
-                        autocomplete(command, commands, &len, sizeof(commands)/sizeof(commands[0]));
+                        autocomplete(command , &len);
                         continue;
                     }
                     if (c == '\n' || c == '\r') {
