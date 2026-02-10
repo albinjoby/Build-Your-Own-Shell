@@ -8,9 +8,10 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-char *commands[] = {"exit","echo","type","pwd","cd"};
+char *commands[] = {"exit","echo","type","pwd","cd", NULL};
 char *executables[10000];
 int exe_idx = 0;
+int tab_pressed_once = 0;
 
 struct termios orig_termios;
 
@@ -115,23 +116,77 @@ int handler_redirection(char **args, char **output_file){
     return 0;
 }
 
+int cmp(const void *a, const void *b) {
+    char *s1 = *(char **)a;
+    char *s2 = *(char **)b;
+    return strcmp(s1, s2);
+}
+
+int already_added(char **arr, int count, char *s){
+    for (int i = 0; i < count; i++) {
+        if (strcmp(arr[i], s) == 0) return 1;
+    }
+    return  0;
+}
+
 void autocomplete(char *command, int *len){
+    char *predictions[1000];
+    int pred_count = 0;
+    
+    for (int i = 0; commands[i] != NULL; i++) {
+           if (strncmp(command, commands[i], *len) == 0) {
+               if (!already_added(predictions, pred_count, commands[i])) {
+                   predictions[pred_count++] = commands[i];
+               }
+           }
+       }
+    predictions[pred_count] = NULL;
+    
     for (int i = 0; executables[i] != NULL; i++) {
-        if(strncmp(command, executables[i], *len) == 0){
-            write(STDOUT_FILENO, executables[i] + *len, strlen(executables[i]) - *len);
-            strcpy(command, executables[i]);
-            *len = strlen(executables[i]);
-            
-            if (*len < 1023) {
-                command[*len] = ' ';
-                command[*len + 1] = '\0';
-                (*len)++;
-                write(STDOUT_FILENO, " ", 1);
+        if (strncmp(command, executables[i], *len) == 0) {
+            if (!already_added(predictions, pred_count, executables[i])) {
+                predictions[pred_count++] = executables[i];
             }
-            return ;
         }
     }
-    write(STDOUT_FILENO, "\a", 1);
+    predictions[pred_count] = NULL;
+
+    if (pred_count == 0) {
+        write(STDOUT_FILENO, "\a", 1);
+        tab_pressed_once = 0;
+        return;
+    }else if (pred_count == 1) {
+        char *match = predictions[0];
+        
+        write(STDOUT_FILENO, match + *len, strlen(match) - *len);
+        strcpy(command, match);
+        *len = strlen(match);
+        
+        if (*len < 1023) {
+            command[*len] = ' ';
+            command[*len + 1] = '\0';
+            (*len)++;
+            write(STDOUT_FILENO, " ", 1);
+        }
+        tab_pressed_once = 0;
+        return ;
+    }else{
+        qsort(predictions, pred_count, sizeof(char *), cmp);
+        if (tab_pressed_once == 0) {
+                write(STDOUT_FILENO, "\a", 1);
+                tab_pressed_once = 1;
+                return;
+            }
+        tab_pressed_once = 0;
+        printf("\n");
+        for (int i = 0; predictions[i] != NULL; i++){
+            printf("%s",predictions[i]);
+            if (i != pred_count - 1) printf("  ");
+        }
+        printf("\n");
+    }
+    printf("$ ");
+    write(STDOUT_FILENO, command, *len);
     return;
 }
 
@@ -142,11 +197,6 @@ void add_executable(char *name){
 }
 
 void get_executables(){
-    // get implemented commands
-    for (int i = 0; i < sizeof(commands)/sizeof(commands[0]); i++) {
-        executables[exe_idx++] = strdup(commands[i]);
-    }
-    // get predefined commands
      char *path = getenv("PATH");
      char *path_copy = strdup(path);
      char *dir = strtok(path_copy, ":");
@@ -163,9 +213,16 @@ void get_executables(){
              char fullpath[1024];
              snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, entry->d_name);
              
-             if (access(fullpath, X_OK) == 0) {
-                 add_executable(entry->d_name);
-             }
+             // if (access(fullpath, X_OK) == 0) {
+             //     add_executable(entry->d_name);
+             // }
+              struct stat st;
+                if (stat(fullpath, &st) == 0 &&
+                    S_ISREG(st.st_mode) &&
+                    access(fullpath, X_OK) == 0) {
+    
+                    add_executable(entry->d_name);
+                }
              
          }
          closedir(d);
@@ -210,6 +267,7 @@ int main(int argc, char *argv[]) {
                     }
                     command[len++] = c;
                     write(STDOUT_FILENO, &c, 1);
+                    tab_pressed_once = 0;
                 }
             }else {
                 printf("$ ");
@@ -287,7 +345,7 @@ int main(int argc, char *argv[]) {
           }
       }else if (strncmp(command, "type ", 5) == 0) {
           int flag = 0;
-          for (int i=0; i<sizeof(commands)/sizeof(commands[0]); i++) {
+          for (int i=0; commands[i] != NULL; i++) {
               if (strcmp(command+5, commands[i]) == 0) {
                   printf("%s is a shell builtin\n",command+5);
                   flag = 1;
