@@ -276,50 +276,71 @@ void get_executables(){
      free(path_copy);
 }
 
+int get_user_input(char *command, int max_len){
+    int len = 0;
+    
+        if (isatty(STDIN_FILENO)) {
+            enable_raw_mode();
+            printf("$ ");
+    
+            while (1) {
+                char c;
+                if (read(STDIN_FILENO, &c, 1) <= 0) {
+                    command[0] = '\0';
+                    return 0;
+                }
+    
+                if (c == '\t') {
+                    autocomplete(command, &len);
+                    continue;
+                }
+    
+                if (c == '\n' || c == '\r') {
+                    command[len] = '\0';
+                    printf("\n");
+                    break;
+                }
+    
+                if (c == 127 || c == 8) {  // backspace
+                    if (len > 0) {
+                        len--;
+                        command[len] = '\0';
+                        write(STDOUT_FILENO, "\b \b", 3);
+                    }
+                    continue;
+                }
+    
+                if (len < max_len - 1) {
+                    command[len++] = c;
+                    write(STDOUT_FILENO, &c, 1);
+                }
+    
+                tab_pressed_once = 0;
+            }
+        } else {
+            printf("$ ");
+            if (!fgets(command, max_len, stdin)) {
+                command[0] = '\0';
+                return 0;
+            }
+            command[strcspn(command, "\n")] = '\0';
+            len = strlen(command);
+        }
+    
+        return len;
+}
+
 int main(int argc, char *argv[]) {
   get_executables();
   setbuf(stdout, NULL);
   char command[1024];
-  int len = 0;
 
   while (1) {
+      int len = get_user_input(command, sizeof(command));
+      disable_raw_mode();
       
-      if (isatty(STDIN_FILENO)) {
-          enable_raw_mode();
-          printf("$ ");
-                len = 0;
-               
-                // get user input (with autocompletion) 
-                while (1) {
-                    char c;
-                    read(STDIN_FILENO, &c, 1);
-                    if (c == '\t') {
-                        autocomplete(command , &len);
-                        continue;
-                    }
-                    if (c == '\n' || c == '\r') {
-                        command[len] = '\0';
-                        printf("\n");
-                        break;
-                    }
-                    if (c == 127 || c == 8) {
-                        if (len > 0) {
-                            len--;
-                            command[len] = '\0';
-                            write(STDOUT_FILENO, "\b \b", 3);
-                        }
-                        continue;
-                    }
-                    command[len++] = c;
-                    write(STDOUT_FILENO, &c, 1);
-                    tab_pressed_once = 0;
-                }
-            }else {
-                printf("$ ");
-                fgets(command, sizeof(command), stdin);
-                command[strcspn(command, "\n")] = '\0';
-            }
-
+      if (command[0] == '\0') continue;
+      
       if (strcmp(command, "exit") == 0) {
           break;
       }else if (strcmp(command, "pwd") == 0) {
