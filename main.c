@@ -116,6 +116,113 @@ int handler_redirection(char **args, char **output_file){
     return 0;
 }
 
+char *trim(char *s){
+    while (*s == ' ') s++;
+    
+    if(*s == 0) return s;
+   
+   char *end = s + strlen(s)-1;
+   while (end > s && *end == ' ') end--;
+   
+   *(end+1) = '\0';
+   return s;
+}
+
+void handle_pipeline(char *command){
+    char *segments[64];
+    int seg_count = 0;
+    
+    char *cmd_copy = strdup(command);
+    char *part = strtok(cmd_copy, "|");
+    
+    while (part != NULL && seg_count < 63) {
+        segments[seg_count++] = strdup(trim(part));
+        part = strtok(NULL, "|");
+    }
+    segments[seg_count] = NULL;
+    
+    free(cmd_copy);
+    
+    // If only 1 segment, no pipeline needed
+    if (seg_count == 1) {
+        char *args[64];
+        parse_args(segments[0], args);
+        execvp(args[0], args);
+        perror("execvp");
+        exit(1);
+    }
+        
+    int prev_read = -1;
+    pid_t pids[64];
+        
+    for (int i = 0; i < seg_count; i++) {
+        int pipefd[2];
+
+        // Create pipe except for last command
+        if (i < seg_count - 1) {
+            if (pipe(pipefd) < 0) {
+                perror("pipe");
+                return;
+            }
+        }
+
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("fork");
+            return;
+        }
+
+        if (pid == 0) {
+            // CHILD
+
+            // If not first command, read from prev pipe
+            if (prev_read != -1) {
+                dup2(prev_read, STDIN_FILENO);
+                close(prev_read);
+            }
+
+            // If not last command, write into current pipe
+            if (i < seg_count - 1) {
+                close(pipefd[0]);               // close read end
+                dup2(pipefd[1], STDOUT_FILENO); // stdout -> pipe write
+                close(pipefd[1]);
+            }
+
+            // Parse args and exec
+            char *args[64];
+            parse_args(segments[i], args);
+
+            execvp(args[0], args);
+            printf("%s: command not found\n", args[0]);
+            exit(1);
+        }
+
+        // PARENT
+        pids[i] = pid;
+
+        // Parent doesn't need prev_read anymore
+        if (prev_read != -1) close(prev_read);
+
+        // Parent keeps read end for next command
+        if (i < seg_count - 1) {
+            close(pipefd[1]);       // close write end
+            prev_read = pipefd[0];  // next command reads from here
+        }
+    }
+        
+    // Wait for all children
+    for (int i = 0; i < seg_count; i++) {
+        waitpid(pids[i], NULL, 0);
+    }
+        
+    // Free segments
+    for (int i = 0; i < seg_count; i++) {
+        free(segments[i]);
+    }
+        
+}
+
 int cmp(const void *a, const void *b) {
     char *s1 = *(char **)a;
     char *s2 = *(char **)b;
@@ -338,6 +445,11 @@ int main(int argc, char *argv[]) {
   while (1) {
       int len = get_user_input(command, sizeof(command));
       disable_raw_mode();
+      
+      if (strchr(command, '|') != NULL) {
+          handle_pipeline(command);
+          continue;
+      }
       
       if (command[0] == '\0') continue;
       
