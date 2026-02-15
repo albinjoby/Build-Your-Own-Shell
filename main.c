@@ -8,7 +8,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-char *commands[] = {"exit","echo","type","pwd","cd", NULL};
+char *commands[] = {"exit","echo","type","pwd","cd",NULL};
 char *executables[10000];
 int exe_idx = 0;
 int tab_pressed_once = 0;
@@ -116,6 +116,208 @@ int handler_redirection(char **args, char **output_file){
     return 0;
 }
 
+void builtin_pwd(){
+    char cwd[64];
+    getcwd(cwd, sizeof(cwd));
+    printf("%s\n",cwd);
+}
+
+void builtin_cd(char **path){
+    if (strcmp(*path, "~") == 0) {
+        chdir(getenv("HOME"));
+    }else if (chdir(*path) != 0){
+        printf("cd: %s: No such file or directory\n",*path);
+    }
+}
+
+void builtin_echo(char **string){
+    char *args[64];
+    parse_args(*string, args);
+    
+    char *output_file = NULL;
+    int redirect_status = handler_redirection(args, &output_file);
+    
+    if (redirect_status == -1) {
+        printf("echo: missing file operand\n");
+        return;
+    }
+    
+    int saved_stdout = -1;
+    int saved_stderr = -1;
+    
+    if (redirect_status > 0) {
+        int flags = O_WRONLY | O_CREAT;
+        if (redirect_status == 1 || redirect_status == 2) {
+            flags |= O_TRUNC;
+        }else{
+            flags |= O_APPEND;
+        }
+        
+        int fd = open(output_file, flags, 0644);
+        if (fd < 0) {
+            perror("open");
+            exit(0);
+        }
+        
+        if (redirect_status == 1 || redirect_status == 3) {
+          saved_stdout = dup(STDOUT_FILENO);
+          dup2(fd,STDOUT_FILENO);
+        }else{
+            saved_stderr = dup(STDERR_FILENO);
+            dup2(fd, STDERR_FILENO);
+        }              
+        close(fd);
+    }
+    
+    for (int i=0; args[i]!=NULL; i++) {
+        if (i > 0) {
+            printf(" ");
+        }
+        printf("%s",args[i]);
+    }
+    printf("\n");
+    
+    if (redirect_status == 1 || redirect_status == 3) {
+        dup2(saved_stdout, STDOUT_FILENO);
+        close(saved_stdout);
+    }else if(redirect_status == 2 || redirect_status == 4){
+        dup2(saved_stderr, STDERR_FILENO);
+        close(saved_stderr);
+    } 
+}
+
+void builtin_type(char **cmd_name){
+    int flag = 0;
+    
+        for (int i = 0; commands[i] != NULL; i++) {
+            if (strcmp(*cmd_name, commands[i]) == 0) {
+                printf("%s is a shell builtin\n", *cmd_name);
+                flag = 1;
+                break;
+            }
+        }
+    
+        if (!flag) {
+            const char *env = getenv("PATH");
+            char *path_copy = strdup(env);
+            char *dir = strtok(path_copy, ":");
+    
+            char *cmd = *cmd_name;
+    
+            while (dir != NULL) {
+                char fullpath[1024];
+                snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd);
+    
+                if (access(fullpath, X_OK) == 0) {
+                    printf("%s is %s\n", cmd, fullpath);
+                    flag = 1;
+                    break;
+                }
+    
+                dir = strtok(NULL, ":");
+            }
+    
+            free(path_copy);
+        }
+    
+        if (!flag) {
+            printf("%s: not found\n", *cmd_name);
+        }
+}
+
+void builtin_other(char *command) {
+    char *args[64];
+    parse_args(command, args);
+
+    char *output_file = NULL;
+    int redirect_status = handler_redirection(args, &output_file);
+
+    if (redirect_status == -1) {
+        printf("missing file operand\n");
+        return;
+    }
+
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        if (redirect_status > 0) {
+            int flags = O_WRONLY | O_CREAT;
+
+            if (redirect_status == 1 || redirect_status == 2)
+                flags |= O_TRUNC;
+            else
+                flags |= O_APPEND;
+
+            int fd = open(output_file, flags, 0644);
+            if (fd < 0) {
+                perror("open");
+                exit(1);
+            }
+
+            if (redirect_status == 1 || redirect_status == 3)
+                dup2(fd, STDOUT_FILENO);
+            else
+                dup2(fd, STDERR_FILENO);
+
+            close(fd);
+        }
+
+        execvp(args[0], args);
+        printf("%s: command not found\n", args[0]);
+        exit(1);
+    } else {
+        waitpid(pid, NULL, 0);
+    }
+}
+
+int is_builtin(char *cmd) {
+    return strcmp(cmd, "pwd") == 0 ||
+           strcmp(cmd, "cd") == 0 ||
+           strcmp(cmd, "echo") == 0 ||
+           strcmp(cmd, "type") == 0 ||
+           strcmp(cmd, "exit") == 0;
+}
+
+int run_builtin(char **args) {
+    if (strcmp(args[0], "pwd") == 0) {
+        builtin_pwd();
+        return 1;
+    }
+
+    if (strcmp(args[0], "cd") == 0) {
+        if (args[1] == NULL) {
+            chdir(getenv("HOME"));
+        } else {
+            builtin_cd(&args[1]);
+        }
+        return 1;
+    }
+
+    if (strcmp(args[0], "echo") == 0) {
+        // your builtin_echo expects string, but pipeline gives args
+        // easiest: just print args[1..]
+        for (int i = 1; args[i] != NULL; i++) {
+            if (i > 1) printf(" ");
+            printf("%s", args[i]);
+        }
+        printf("\n");
+        return 1;
+    }
+
+    if (strcmp(args[0], "type") == 0) {
+        if (args[1] != NULL) {
+            builtin_type(&args[1]);
+        }
+        return 1;
+    }
+
+    if (strcmp(args[0], "exit") == 0) {
+        exit(0); // only exits the child, not parent
+    }
+
+    return 0;
+}
+
 char *trim(char *s){
     while (*s == ' ') s++;
     
@@ -192,6 +394,12 @@ void handle_pipeline(char *command){
             // Parse args and exec
             char *args[64];
             parse_args(segments[i], args);
+            
+            if (is_builtin(args[0])) {
+                run_builtin(args);
+                exit(0);
+            }
+
 
             execvp(args[0], args);
             printf("%s: command not found\n", args[0]);
@@ -220,7 +428,6 @@ void handle_pipeline(char *command){
     for (int i = 0; i < seg_count; i++) {
         free(segments[i]);
     }
-        
 }
 
 int cmp(const void *a, const void *b) {
@@ -456,146 +663,18 @@ int main(int argc, char *argv[]) {
       if (strcmp(command, "exit") == 0) {
           break;
       }else if (strcmp(command, "pwd") == 0) {
-          char cwd[64];
-          getcwd(cwd, sizeof(cwd));
-          printf("%s\n",cwd);
+          builtin_pwd();
       }else if (strncmp(command, "cd ", 3) == 0) {
          char *path = command+3;
-         if (strcmp(path, "~") == 0) {
-             chdir(getenv("HOME"));
-         }else if (chdir(path) != 0){
-             printf("cd: %s: No such file or directory\n",path);
-         }
+         builtin_cd(&path);
       }else if (strncmp(command, "echo ", 5) == 0) {
           char *string = command + 5;
-          char *args[64];
-          parse_args(string, args);
-          
-          char *output_file = NULL;
-          int redirect_status = handler_redirection(args, &output_file);
-          
-          if (redirect_status == -1) {
-              printf("echo: missing file operand\n");
-              continue;
-          }
-          
-          int saved_stdout = -1;
-          int saved_stderr = -1;
-          
-          if (redirect_status > 0) {
-              int flags = O_WRONLY | O_CREAT;
-              if (redirect_status == 1 || redirect_status == 2) {
-                  flags |= O_TRUNC;
-              }else{
-                  flags |= O_APPEND;
-              }
-              
-              int fd = open(output_file, flags, 0644);
-              if (fd < 0) {
-                  perror("open");
-                  exit(0);
-              }
-              
-              if (redirect_status == 1 || redirect_status == 3) {
-                saved_stdout = dup(STDOUT_FILENO);
-                dup2(fd,STDOUT_FILENO);
-              }else{
-                  saved_stderr = dup(STDERR_FILENO);
-                  dup2(fd, STDERR_FILENO);
-              }              
-              close(fd);
-          }
-          
-          for (int i=0; args[i]!=NULL; i++) {
-              if (i > 0) {
-                  printf(" ");
-              }
-              printf("%s",args[i]);
-          }
-          printf("\n");
-          
-          if (redirect_status == 1 || redirect_status == 3) {
-              dup2(saved_stdout, STDOUT_FILENO);
-              close(saved_stdout);
-          }else if(redirect_status == 2 || redirect_status == 4){
-              dup2(saved_stderr, STDERR_FILENO);
-              close(saved_stderr);
-          }
+          builtin_echo(&string);
       }else if (strncmp(command, "type ", 5) == 0) {
-          int flag = 0;
-          for (int i=0; commands[i] != NULL; i++) {
-              if (strcmp(command+5, commands[i]) == 0) {
-                  printf("%s is a shell builtin\n",command+5);
-                  flag = 1;
-                  break;
-              }
-          }
-          if (!flag) {
-            const char *env = getenv("PATH");
-            char *path_copy = strdup(env);
-            char *dir = strtok(path_copy, ":");
-            char *cmd = command + 5;
-
-            while (dir != NULL) {
-                char fullpath[1024];
-                snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd);
-
-                if (access(fullpath, X_OK) == 0) {
-                        printf("%s is %s\n", cmd, fullpath);
-                        flag = 1;
-                        break;
-                    }
-
-                    dir = strtok(NULL, ":");
-                }
-
-                free(path_copy);
-            }
-
-          if (!flag) {
-              printf("%s: not found\n",command+5);
-          }
+          char *cmd = command+5;
+          builtin_type(&cmd);
       }else{
-          char *args[64];
-          parse_args(command, args);
-
-          char *output_file = NULL;
-          int redirect_status = handler_redirection(args, &output_file);
-          
-          if(redirect_status == -1){
-              printf("missing file operand\n");
-              continue;
-          }
-          
-          pid_t pid = fork();
-          
-          if (pid == 0) {
-              if(redirect_status > 0){
-                  int flags = O_WRONLY | O_CREAT;
-                  if (redirect_status == 1 || redirect_status == 2) {
-                      flags |= O_TRUNC;
-                  }else{
-                      flags |= O_APPEND;
-                  }
-                  int fd = open(output_file, flags, 0644);
-                  if (fd < 0) {
-                      perror("open");
-                      exit(1);
-                  }
-                  if (redirect_status == 1 || redirect_status == 3) {
-                      dup2(fd, STDOUT_FILENO);
-                  }else{
-                      dup2(fd, STDERR_FILENO);
-                  }
-                  close(fd);
-              }
-              
-              execvp(args[0], args);
-              printf("%s: command not found\n", args[0]);
-              exit(1);
-          } else {
-              waitpid(pid, NULL, 0);
-          }
+          builtin_other(command);
       }
   }
   return 0;
