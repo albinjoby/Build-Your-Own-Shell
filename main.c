@@ -12,6 +12,7 @@ char *commands[] = {"exit","echo","type","pwd","cd","history",NULL};
 char *history[1024];
 int hist_idx = 0;
 int history_nav = -1;
+int last_appeend_idx = 0;
 const int max_history_limit = 1024;
 char *executables[10000];
 int exe_idx = 0;
@@ -797,9 +798,10 @@ int main(int argc, char *argv[]) {
               if (fp == NULL) {
                   perror("file");
               }else{
-                for (int i = 0; i < hist_idx; i++) {
+                for (int i = last_appeend_idx; i < hist_idx; i++) {
                     fprintf(fp, "%s\n", history[i]);
                 }
+                last_appeend_idx = hist_idx;
                 fclose(fp);
               }
           }else{
