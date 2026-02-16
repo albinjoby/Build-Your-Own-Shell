@@ -8,7 +8,11 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-char *commands[] = {"exit","echo","type","pwd","cd",NULL};
+char *commands[] = {"exit","echo","type","pwd","cd","history",NULL};
+char *history[1024];
+int hist_idx = 0;
+int history_nav = -1;
+const int max_history_limit = 1024;
 char *executables[10000];
 int exe_idx = 0;
 int tab_pressed_once = 0;
@@ -27,6 +31,33 @@ void enable_raw_mode() {
 
     raw.c_lflag &= ~(ECHO | ICANON);  // disable echo + canonical mode
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+void read_history(int limit){
+    int start = 0;
+    
+    if (limit > 0 && limit < hist_idx) {
+        start = hist_idx - limit;
+    }
+    
+    for (int i = start ; i < hist_idx; i++) {
+        printf("%5d  %s\n", i + 1, history[i]);
+    }
+}
+
+void write_history(char *command){
+    if (hist_idx < max_history_limit) {
+        history[hist_idx++] = strdup(command);
+    }
+}
+
+//FIX: check if this is required
+void print_history(int idx){
+    if(hist_idx == 0) return;
+    
+    if (idx == -1) {
+        printf("%s\n",history[hist_idx - 1]);
+    }
 }
 
 void parse_args(char *input, char **args){
@@ -603,7 +634,55 @@ int get_user_input(char *command, int max_len){
                     command[0] = '\0';
                     return 0;
                 }
-    
+                
+                if (c == 27) {
+                    char seq[2];
+                    if (read(STDIN_FILENO, &seq[0], 1) <= 0) continue;
+                    if (read(STDIN_FILENO, &seq[1], 1) <= 0) continue;
+                
+                    // UP arrow: ESC [ A
+                    if (seq[0] == '[' && seq[1] == 'A') {
+                        if (hist_idx > 0) {
+                            if (history_nav == -1) history_nav = hist_idx - 1;
+                            else if (history_nav > 0) history_nav--;
+                
+                            while (len > 0) {
+                                write(STDOUT_FILENO, "\b \b", 3);
+                                len--;
+                            }
+                
+                            strcpy(command, history[history_nav]);
+                            len = strlen(command);
+                            write(STDOUT_FILENO, command, len);
+                        }
+                        continue;
+                    }
+                
+                    // DOWN arrow: ESC [ B
+                    if (seq[0] == '[' && seq[1] == 'B') {
+                        if (history_nav == -1) continue;
+                
+                        if (history_nav < hist_idx - 1) history_nav++;
+                        else history_nav = -1;
+                
+                        while (len > 0) {
+                            write(STDOUT_FILENO, "\b \b", 3);
+                            len--;
+                        }
+                
+                        command[0] = '\0';
+                
+                        if (history_nav != -1) {
+                            strcpy(command, history[history_nav]);
+                            len = strlen(command);
+                            write(STDOUT_FILENO, command, len);
+                        }
+                        continue;
+                    }
+                
+                    continue;
+                }
+        
                 if (c == '\t') {
                     autocomplete(command, &len);
                     continue;
@@ -653,12 +732,14 @@ int main(int argc, char *argv[]) {
       int len = get_user_input(command, sizeof(command));
       disable_raw_mode();
       
+      if (command[0] == '\0') continue;
+      
+      write_history(command);
+      
       if (strchr(command, '|') != NULL) {
           handle_pipeline(command);
           continue;
       }
-      
-      if (command[0] == '\0') continue;
       
       if (strcmp(command, "exit") == 0) {
           break;
@@ -673,6 +754,58 @@ int main(int argc, char *argv[]) {
       }else if (strncmp(command, "type ", 5) == 0) {
           char *cmd = command+5;
           builtin_type(&cmd);
+      }else if (strcmp(command, "history") == 0 || strncmp(command, "history ", 8) == 0) {
+          if (strcmp(command, "history") == 0) {
+              read_history(max_history_limit);
+          }else if (strncmp(command+8, "-r ", 3) == 0) {
+              
+              char *history_file = command + 11;
+              FILE *fp = fopen(history_file, "r");
+              
+              if (fp == NULL) {
+                  perror("file");
+              }else{
+                  char line[256];
+                  
+                  while (fgets(line, sizeof(line), fp)) {
+                      line[strcspn(line, "\n")] = '\0';
+                      
+                      if (line[0] == '\0') continue;
+                      
+                      write_history(line);
+                    }
+              }
+              fclose(fp);
+          }else if (strncmp(command+8, "-w ", 3) == 0) {
+              
+              char *history_file = command + 11;
+              FILE *fp = fopen(history_file, "w");
+              
+              if (fp == NULL) {
+                  perror("file");
+              }else{
+                for (int i = 0; i < hist_idx; i++) {
+                    fprintf(fp, "%s\n", history[i]);
+                }
+                fclose(fp);
+              }
+          }else if (strncmp(command+8, "-a ", 3) == 0) {
+              
+              char *history_file = command + 11;
+              FILE *fp = fopen(history_file, "a");
+              
+              if (fp == NULL) {
+                  perror("file");
+              }else{
+                for (int i = 0; i < hist_idx; i++) {
+                    fprintf(fp, "%s\n", history[i]);
+                }
+                fclose(fp);
+              }
+          }else{
+              int limit = atoi(command + 8);
+              read_history(limit);
+          }
       }else{
           builtin_other(command);
       }
