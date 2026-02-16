@@ -52,12 +52,33 @@ void write_history(char *command){
     }
 }
 
-//FIX: check if this is required
 void print_history(int idx){
     if(hist_idx == 0) return;
     
     if (idx == -1) {
         printf("%s\n",history[hist_idx - 1]);
+    }
+}
+
+void get_history(){
+    char *hist_file = getenv("HISTFILE");
+    if (!hist_file) return;
+    
+    FILE *fp = fopen(hist_file, "r");
+    
+    if (fp == NULL) {
+        return;
+    }else{
+       char line[256];
+       
+       while (fgets(line, sizeof(line), fp)) {
+           line[strcspn(line, "\n")] = '\0';
+                            
+           if (line[0] == '\0') continue;
+                            
+           write_history(line);
+       }
+       fclose(fp);
     }
 }
 
@@ -726,6 +747,7 @@ int get_user_input(char *command, int max_len){
 
 int main(int argc, char *argv[]) {
   get_executables();
+  get_history();
   setbuf(stdout, NULL);
   char command[1024];
 
@@ -743,6 +765,19 @@ int main(int argc, char *argv[]) {
       }
       
       if (strcmp(command, "exit") == 0) {
+          
+          char *hist_file = getenv("HISTFILE");
+          
+          if (hist_file != NULL) {
+              FILE *fp = fopen(hist_file, "w");
+              if (fp != NULL) {
+                  for (int i = 0; i < hist_idx; i++) {
+                      fprintf(fp, "%s\n", history[i]);
+                  }
+                  fclose(fp);
+              }
+          }
+          
           break;
       }else if (strcmp(command, "pwd") == 0) {
           builtin_pwd();

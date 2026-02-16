@@ -1,9 +1,0 @@
-ls
-clear
-ls
-history -w history.txt
-clear
-clear
-clear
-clear
-history -a history.txt
