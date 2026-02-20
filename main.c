@@ -8,17 +8,27 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-char *commands[] = {"exit","echo","type","pwd","cd","history",NULL};
-char *history[1024];
+char *commands[] = {"exit","echo","type","pwd","cd","alias","history",NULL};
+char *history[100];
 int hist_idx = 0;
 int history_nav = -1;
 int last_appeend_idx = 0;
-const int max_history_limit = 1024;
-char *executables[10000];
+const int max_history_limit = 100;
+char *executables[100];
 int exe_idx = 0;
 int tab_pressed_once = 0;
 
 struct termios orig_termios;
+
+#define max_alias 100
+
+typedef struct{
+   char name[64];
+   char value[256];
+} Alias;
+
+Alias aliases[max_alias];
+int alias_cout = 0;
 
 void disable_raw_mode() {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -278,6 +288,60 @@ void builtin_type(char **cmd_name){
         }
 }
 
+void builtin_alias(char *command){
+    // if just "alias" then print all
+    if (strcmp(command, "alias") == 0) {
+        for (int i = 0; i < alias_cout; i++) {
+            printf("alias %s=\"%s\"\n",aliases[i].name, aliases[i].value);
+        }
+        return;
+    }
+    
+    // alias name="value"
+    char *eq = strchr(command, '=');
+    if (!eq) {
+        printf("alias: invalid format\n");
+        return;
+    }
+    
+    *eq = '\0';
+    
+    char *name = command + 6;
+    while (*name == ' ') name++;
+    char *value = eq + 1;
+    
+    // remove quoutes
+    size_t len = strlen(value);
+    if ((value[0] == '"' && value[len-1] == '"') || (value[0] == '\'' && value[len - 1] == '\'')) {
+        value[len - 1] = '\0';
+        value++;
+    }
+    
+    if (alias_cout < max_alias) {
+        strcpy(aliases[alias_cout].name, name);
+        strcpy(aliases[alias_cout].value, value);
+        alias_cout++;
+    }
+}
+
+void expand_alias(char *command){
+    char temp[1024];
+    strcpy(temp, command);
+    
+    char *first = strtok(temp, " ");
+    if (!first) return;
+    
+    for (int i = 0; i <  alias_cout; i++) {
+        if (strcmp(first, aliases[i].name) == 0) {
+            char new_cmd[1024];
+            snprintf(new_cmd, sizeof(new_cmd), "%s%s", aliases[i].value, command + strlen(first));
+            
+            strcpy(command, new_cmd);
+            return;
+        }
+    }
+}
+
 void builtin_other(char *command) {
     char *args[64];
     parse_args(command, args);
@@ -324,14 +388,27 @@ void builtin_other(char *command) {
 }
 
 int is_builtin(char *cmd) {
-    return strcmp(cmd, "pwd") == 0 ||
-           strcmp(cmd, "cd") == 0 ||
-           strcmp(cmd, "echo") == 0 ||
-           strcmp(cmd, "type") == 0 ||
-           strcmp(cmd, "exit") == 0;
+    for (int i = 0; commands[i] != NULL; i++)  {
+        if (strcmp(cmd, commands[i]) == 0) {
+           return 1; 
+        }
+    }
+    return 0;
 }
 
 int run_builtin(char **args) {
+    
+    if (strcmp(args[0], "alias") == 0) {
+        char reconstructed[1024] = "alias";
+        for (int i = 1; args[i] != NULL; i++) {
+            strcat(reconstructed, "");
+            strcat(reconstructed, args[i]);
+        }
+        
+        builtin_alias(reconstructed);
+        return 1;
+    }
+    
     if (strcmp(args[0], "pwd") == 0) {
         builtin_pwd();
         return 1;
@@ -445,6 +522,9 @@ void handle_pipeline(char *command){
             }
 
             // Parse args and exec
+           
+            expand_alias(segments[i]);
+            
             char *args[64];
             parse_args(segments[i], args);
             
@@ -759,6 +839,8 @@ int main(int argc, char *argv[]) {
       
       write_history(command);
       
+      expand_alias(command);
+      
       if (strchr(command, '|') != NULL) {
           handle_pipeline(command);
           continue;
@@ -790,6 +872,8 @@ int main(int argc, char *argv[]) {
       }else if (strncmp(command, "type ", 5) == 0) {
           char *cmd = command+5;
           builtin_type(&cmd);
+      }else if (strncmp(command, "alias", 5) == 0) {
+         builtin_alias(command); 
       }else if (strcmp(command, "history") == 0 || strncmp(command, "history ", 8) == 0) {
           if (strcmp(command, "history") == 0) {
               read_history(max_history_limit);
