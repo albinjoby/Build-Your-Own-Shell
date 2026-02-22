@@ -14,3 +14,4 @@ This shell supports:
 - Command history
 - History persistence
 - Interactive terminal raw-mode input handling using backspace, tab & arrows
+- Alias
